@@ -5,7 +5,7 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 
-// Force Socket.io to use websocket transport first to avoid Render polling 502 gateway errors
+// Initialize Socket.io with web-socket prioritized transport
 const io = new Server(server, {
     cors: { origin: "*" },
     transports: ['websocket', 'polling']
@@ -13,10 +13,12 @@ const io = new Server(server, {
 
 let waitingQueue = [];
 
-function isPlatformOpen() {
-    return true; // Keep open for testing
-}
+// Health check endpoint for Render proxy (prevents 502 gateway timeouts)
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
 
+// Serve the main application UI
 app.get('/', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -70,7 +72,6 @@ app.get('/', (req, res) => {
         </div>
 
         <script>
-            // Force client to connect cleanly
             const socket = io({ transports: ['websocket', 'polling'] });
             let currentRoom = null;
             let countdownInterval = null;
@@ -167,11 +168,6 @@ app.get('/', (req, res) => {
 
 io.on('connection', (socket) => {
     socket.on('join-queue', (data) => {
-        if (!isPlatformOpen()) {
-            socket.emit('error-msg', 'Platform is closed!');
-            return;
-        }
-
         socket.userData = data;
 
         const matchIndex = waitingQueue.findIndex(
@@ -221,7 +217,7 @@ io.on('connection', (socket) => {
     });
 });
 
-// CRITICAL: Bind to 0.0.0.0 and Render's assigned process.env.PORT
+// Render Dynamic Port Binding
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
