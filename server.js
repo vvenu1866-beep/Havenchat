@@ -4,27 +4,19 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+
+// Force Socket.io to use websocket transport first to avoid Render polling 502 gateway errors
+const io = new Server(server, {
+    cors: { origin: "*" },
+    transports: ['websocket', 'polling']
+});
 
 let waitingQueue = [];
 
-// IST Time Validation Function (7:30 PM to 2:00 AM IST)
 function isPlatformOpen() {
-    const options = { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: 'numeric', hour12: false };
-    const formatter = new Intl.DateTimeFormat([], options);
-    const timeString = formatter.format(new Date());
-    const [hours, minutes] = timeString.split(':').map(Number);
-    const totalMinutes = hours * 60 + minutes;
-
-    // 7:30 PM = 1170 mins | 2:00 AM = 120 mins (Next day)
-    if ((totalMinutes >= 1170 && totalMinutes <= 1439) || (totalMinutes >= 0 && totalMinutes <= 120)) {
-        return true;
-    }
-    // NOTE: Change this to 'true' if you want it open 24/7 during your testing phase!
-    return true;
+    return true; // Keep open for testing
 }
 
-// Serve the HTML directly from the server
 app.get('/', (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -78,7 +70,8 @@ app.get('/', (req, res) => {
         </div>
 
         <script>
-            const socket = io();
+            // Force client to connect cleanly
+            const socket = io({ transports: ['websocket', 'polling'] });
             let currentRoom = null;
             let countdownInterval = null;
 
@@ -174,9 +167,8 @@ app.get('/', (req, res) => {
 
 io.on('connection', (socket) => {
     socket.on('join-queue', (data) => {
-        // Enforce IST operating hours check
         if (!isPlatformOpen()) {
-            socket.emit('error-msg', 'Platform is closed! Operating hours are daily from 7:30 PM to 2:00 AM IST.');
+            socket.emit('error-msg', 'Platform is closed!');
             return;
         }
 
@@ -202,7 +194,6 @@ io.on('connection', (socket) => {
                     partnerNickname: partner.userData.nickname
                 });
 
-                // 35-Minute Timer
                 const timerMinutes = 35 * 60 * 1000;
                 const roomTimeout = setTimeout(() => {
                     io.to(roomId).emit('chat-ended', { reason: '35 minutes time limit reached.' });
@@ -230,7 +221,8 @@ io.on('connection', (socket) => {
     });
 });
 
-const PORT = process.env.PORT || 3000;
+// CRITICAL: Bind to 0.0.0.0 and Render's assigned process.env.PORT
+const PORT = process.env.PORT || 4000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
 });
